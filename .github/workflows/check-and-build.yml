@@ -1,0 +1,82 @@
+
+name: custom sing-box build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to build'
+        required: true
+        type: string
+      tags:
+        description: 'The build-time tags to use (comma-separated)'
+        required: false
+        default: 'with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale'
+        type: string
+      build_platforms:
+        description: 'The platforms to build for (comma-separated)'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+        type: string
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Needed to push to GitHub Packages
+    env:
+      UPSTREAM_REPO: https://github.com/SagerNet/sing-box.git
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone source code
+        run: git clone --depth 1 --branch ${{ github.event.inputs.version }} ${{ env.UPSTREAM_REPO }}
+
+      - name: Get Go version from go.mod
+        id: get_go_version
+        if: steps.cache-check.outputs.cache-hit != 'true'
+        run: |
+          GO_VERSION=$(grep -oP '^go\s+\K[0-9]+\.[0-9]+(\\.[0-9]+)?' ./sing-box/go.mod)
+          echo "Go version from go.mod is $GO_VERSION"
+          echo "go_version=$GO_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,enable=true,value=${{ github.event.inputs.version }}
+            type=sha
+            latest
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./
+          platforms: ${{ github.event.inputs.build_platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GO_VERSION=${{ steps.get_go_version.outputs.go_version }}
+            BUILD_TAGS=${{ github.event.inputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
