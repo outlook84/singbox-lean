@@ -1,6 +1,6 @@
 # singbox-lean
 
-极简 sing-box 容器，不同构建 tag 选择情况下，可以小于 20MB。
+极简 sing-box 容器，构建 tag 选择较少情况下，可以小于 20MB。
 
 注意：没有 nftables，所以不能使用基于 nftables 的 auto_redirect 功能。
 
